@@ -8,13 +8,19 @@ import itertools
 import logging
 import threading
 import time
-from typing import Optional
+from datetime import datetime
+from typing import Optional, Union
 
-from app.config import NOTIFY_COOLDOWN_SECONDS, PATRIMONIOS
+import cv2
+import numpy as np
+
+from app.config import ASSETS_DIR, NOTIFY_COOLDOWN_SECONDS, PATRIMONIOS
 
 logger = logging.getLogger(__name__)
 
 MAX_ALERTS = 500
+# Imagem da câmera no momento de cada alerta (aberta ao clicar no alerta)
+ALERT_IMAGES_DIR = ASSETS_DIR / "alerts"
 # O mesmo alerta (câmera + origem + nível) não entra de novo no histórico
 # antes disto — a análise contínua avalia 2x/s e registraria o mesmo
 # "pessoa em cima da estátua" dezenas de vezes seguidas.
@@ -67,18 +73,55 @@ _lock = threading.Lock()
 _id_counter = itertools.count(1)
 
 
+def _save_image(alert_id: int, camera_code: str, image: Union[bytes, np.ndarray]) -> Optional[str]:
+    """Grava o frame do alerta (JPEG pronto ou array RGB) e devolve a URL em /assets."""
+    try:
+        if isinstance(image, np.ndarray):
+            ok, buf = cv2.imencode(".jpg", cv2.cvtColor(image, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 85])
+            if not ok:
+                return None
+            image = buf.tobytes()
+        ALERT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+        # Os ids recomeçam a cada reinício do backend: o horário evita sobrescrever
+        name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{alert_id}_{camera_code}.jpg"
+        (ALERT_IMAGES_DIR / name).write_bytes(image)
+        return f"/assets/alerts/{name}"
+    except Exception as e:
+        logger.warning(f"Erro ao salvar imagem do alerta {alert_id}: {e}")
+        return None
+
+
+def _delete_image(entry: dict) -> None:
+    url = entry.get("image") or ""
+    if url.startswith("/assets/alerts/"):
+        try:
+            (ALERT_IMAGES_DIR / url.rsplit("/", 1)[1]).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 def add_alert(camera_code: str, camera_name: str, level: str, message: str,
               source: str, objects: Optional[list[str]] = None,
-              evidence: Optional[dict] = None) -> dict:
-    """Registra um novo alerta e retorna o registro criado."""
+              evidence: Optional[dict] = None,
+              image: Optional[Union[bytes, np.ndarray]] = None) -> dict:
+    """Registra um novo alerta e retorna o registro criado.
+
+    `image`: frame da câmera no momento do alerta (JPEG ou array RGB) —
+    só é gravado em disco se o alerta for de fato registrado (não duplicado).
+    """
     key = (camera_code, source, level)
     with _lock:
         prev = _last_stored.get(key)
         if prev and time.time() - prev["timestamp"] < DEDUP_SECONDS:
             return prev
         notify = _should_notify(camera_code, source, level)
+        alert_id = next(_id_counter)
+    # Evento de superfície já tem o "durante" gravado nas evidências
+    image_url = ((evidence or {}).get("images") or {}).get("durante")
+    if not image_url and image is not None:
+        image_url = _save_image(alert_id, camera_code, image)
     entry = {
-        "id": next(_id_counter),
+        "id": alert_id,
         "timestamp": time.time(),
         "camera_code": camera_code,
         "camera_name": camera_name,
@@ -91,12 +134,16 @@ def add_alert(camera_code: str, camera_name: str, level: str, message: str,
         "objects": objects or [],
         # Eventos de superfície: imagens antes/durante/depois + clipe
         "evidence": evidence,
+        # URL do frame da câmera no momento do alerta (ou None)
+        "image": image_url,
         "notify": notify,  # true = frontend toca som + mostra mensagem
     }
     with _lock:
         _last_stored[key] = entry
         _alerts.append(entry)
         if len(_alerts) > MAX_ALERTS:
+            for old in _alerts[: len(_alerts) - MAX_ALERTS]:
+                _delete_image(old)
             del _alerts[: len(_alerts) - MAX_ALERTS]
     logger.info(f"🚨 Alerta registrado: {camera_code} [{level}] {message}")
     return entry

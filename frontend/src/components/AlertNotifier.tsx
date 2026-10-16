@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Bell, Volume2, VolumeX } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Bell, ImageOff, Video, Volume2, VolumeX, X } from 'lucide-react'
 import { api } from '../api/client'
 
 interface NotifyAlert {
@@ -10,6 +11,8 @@ interface NotifyAlert {
   level: string
   message: string
   source: string
+  // Frame da câmera no momento do alerta (servido em /assets)
+  image?: string | null
 }
 
 const POLL_MS = 5000
@@ -36,6 +39,7 @@ export default function AlertNotifier({ onOpenMonitoramento }: { onOpenMonitoram
   const [items, setItems] = useState<NotifyAlert[]>([])
   const [unread, setUnread] = useState<Set<number>>(new Set())
   const [open, setOpen] = useState(false)
+  const [viewing, setViewing] = useState<NotifyAlert | null>(null)
   const [muted, setMuted] = useState(loadMuted)
   const [soundBlocked, setSoundBlocked] = useState(false)
   const cursorRef = useRef<number | null>(null)
@@ -93,6 +97,14 @@ export default function AlertNotifier({ onOpenMonitoramento }: { onOpenMonitoram
       clearInterval(id)
     }
   }, [playSound])
+
+  // Pop-up da imagem fecha com Esc
+  useEffect(() => {
+    if (!viewing) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setViewing(null)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [viewing])
 
   // Fecha a lista ao clicar fora
   useEffect(() => {
@@ -157,7 +169,8 @@ export default function AlertNotifier({ onOpenMonitoramento }: { onOpenMonitoram
             ) : items.map((a) => (
               <button
                 key={a.id}
-                onClick={() => { onOpenMonitoramento(); setOpen(false) }}
+                onClick={() => { setViewing(a); setOpen(false) }}
+                title={a.image ? 'Ver imagem da câmera no momento do alerta' : 'Ver detalhes do alerta'}
                 className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-start gap-2"
               >
                 <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${LEVEL_DOT[a.level] ?? 'bg-gray-400'}`} />
@@ -170,10 +183,69 @@ export default function AlertNotifier({ onOpenMonitoramento }: { onOpenMonitoram
                   </span>
                   <span className="block text-xs text-gray-600 leading-snug mt-0.5">{a.message}</span>
                 </span>
+                {a.image && (
+                  <img
+                    src={api.assetUrl(a.image)}
+                    alt=""
+                    loading="lazy"
+                    className="w-14 h-10 object-cover rounded border border-gray-200 shrink-0"
+                  />
+                )}
               </button>
             ))}
           </div>
         </div>
+      )}
+
+      {/* Pop-up com a imagem da câmera no momento do alerta — fecha no clique fora, no X ou com Esc.
+          Portal no body: o backdrop-blur do header prenderia o "fixed" dentro dele. */}
+      {viewing && createPortal(
+        <div
+          className="fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setViewing(null)}
+        >
+          <figure className="relative max-w-5xl w-full" onClick={(e) => e.stopPropagation()}>
+            {viewing.image ? (
+              <img
+                src={api.assetUrl(viewing.image)}
+                alt={viewing.camera_name}
+                className="w-full max-h-[75vh] object-contain rounded-lg bg-black"
+              />
+            ) : (
+              <div className="w-full h-64 rounded-lg bg-gray-900 flex flex-col items-center justify-center gap-2 text-white/60">
+                <ImageOff size={28} />
+                <span className="text-sm">Nenhuma imagem registrada para este alerta</span>
+              </div>
+            )}
+            <figcaption className="mt-3 flex flex-wrap items-start justify-between gap-3 text-white">
+              <span className="min-w-0">
+                <span className="flex items-center gap-2 text-sm font-semibold">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${LEVEL_DOT[viewing.level] ?? 'bg-gray-400'}`} />
+                  {viewing.camera_name}
+                  <span className="text-xs font-normal text-white/60">
+                    [{viewing.level}] {new Date(viewing.timestamp * 1000).toLocaleString('pt-BR')}
+                  </span>
+                </span>
+                <span className="block text-sm text-white/85 mt-1">{viewing.message}</span>
+              </span>
+              <button
+                onClick={() => { setViewing(null); onOpenMonitoramento() }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-gray-800 text-xs font-medium hover:bg-gray-100 shrink-0"
+              >
+                <Video size={14} />
+                Abrir monitoramento
+              </button>
+            </figcaption>
+            <button
+              onClick={() => setViewing(null)}
+              className="absolute -top-3 -right-3 p-1.5 rounded-full bg-white text-gray-700 shadow hover:bg-gray-100"
+              title="Fechar (Esc)"
+            >
+              <X size={16} />
+            </button>
+          </figure>
+        </div>,
+        document.body,
       )}
     </div>
   )
