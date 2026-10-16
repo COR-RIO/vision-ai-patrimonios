@@ -6,6 +6,7 @@ Backend FastAPI
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -35,6 +36,16 @@ STREAM_KEY = os.getenv("STREAM_KEY", "")
 # Servidor da página de vídeo WebRTC/WHEP da Tixxi (stream_type="html").
 # Usado pelo proxy em app/api/video_proxy.py — ver comentário lá do porquê.
 VIDEO_PAGE_BASE_URL = os.getenv("VIDEO_PAGE_BASE_URL", "http://10.50.3.11:5001")
+
+# O servidor de mídia só anuncia o IP público (187.111.99.23) nos candidatos
+# ICE do SDP answer, que não é alcançável de dentro da rede interna (sem
+# hairpin NAT) — a negociação WHEP dá 201 mas o ICE termina em "failed".
+# O proxy de WHEP duplica cada candidato trocando o IP por este host interno
+# (onde a porta de mídia está aberta). Vazio desativa. Padrão: o host de
+# VIDEO_PAGE_BASE_URL.
+WEBRTC_EXTRA_ICE_HOST = os.getenv(
+    "WEBRTC_EXTRA_ICE_HOST", urlparse(VIDEO_PAGE_BASE_URL).hostname or ""
+)
 
 # Intervalo da renovação antecipada do token da API + KEYs de stream
 # (que vencem em ~1h). 45min deixa folga antes do vencimento.

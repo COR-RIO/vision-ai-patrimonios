@@ -25,7 +25,7 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from app.config import VIDEO_PAGE_BASE_URL
+from app.config import VIDEO_PAGE_BASE_URL, WEBRTC_EXTRA_ICE_HOST
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Proxy de Vídeo (Tixxi)"])
@@ -135,6 +135,38 @@ async def proxy_session_stop(request: Request):
     return await _proxy(request, f"{VIDEO_PAGE_BASE_URL}/app/session/stop")
 
 
+# a=candidate:<foundation> <component> <transport> <priority> <ip> <port> ...
+_CANDIDATE_LINE = re.compile(r"^a=candidate:(\S+) (\S+ \S+ \S+) (\S+) (.*)$")
+
+
+def _add_internal_ice_candidates(sdp: str, host: str) -> str:
+    """Duplica cada candidato ICE do SDP answer trocando o IP por `host`.
+
+    Os candidatos originais (IP público) continuam lá, então quem acessa de
+    fora da rede segue funcionando; de dentro, o navegador acha o caminho
+    pelo IP interno. Ver WEBRTC_EXTRA_ICE_HOST em config.py.
+    """
+    out = []
+    for line in sdp.splitlines():
+        out.append(line)
+        m = _CANDIDATE_LINE.match(line)
+        if m and m.group(3) != host:
+            foundation, middle, _ip, rest = m.groups()
+            out.append(f"a=candidate:{foundation}9 {middle} {host} {rest}")
+    return "\r\n".join(out) + "\r\n"
+
+
 @router.post("/app/whep/{session_id}")
 async def proxy_whep(request: Request, session_id: str):
-    return await _proxy(request, f"{VIDEO_PAGE_BASE_URL}/app/whep/{session_id}")
+    resp = await _proxy(request, f"{VIDEO_PAGE_BASE_URL}/app/whep/{session_id}")
+    if WEBRTC_EXTRA_ICE_HOST and resp.status_code in (200, 201):
+        sdp = resp.body.decode("utf-8", errors="ignore")
+        if "a=candidate:" in sdp:
+            headers = {k: v for k, v in resp.headers.items() if k.lower() not in _STRIP_HEADERS}
+            return Response(
+                content=_add_internal_ice_candidates(sdp, WEBRTC_EXTRA_ICE_HOST),
+                status_code=resp.status_code,
+                headers=headers,
+                media_type=resp.media_type,
+            )
+    return resp

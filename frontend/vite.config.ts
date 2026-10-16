@@ -10,7 +10,7 @@ const START_PORT = 5173
 // a porta está livre mesmo com outro processo já escutando nela. Tentar
 // conectar como cliente é o jeito confiável de saber se alguém já responde
 // naquela porta.
-function isPortInUse(port: number, host = '127.0.0.1'): Promise<boolean> {
+function isPortInUseOn(port: number, host: string): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = new net.Socket()
     const done = (result: boolean) => {
@@ -23,6 +23,13 @@ function isPortInUse(port: number, host = '127.0.0.1'): Promise<boolean> {
     socket.once('error', () => done(false))
     socket.connect(port, host)
   })
+}
+
+// Testa IPv4 e IPv6: no Windows o Vite com host padrão ('localhost') escuta
+// só em ::1, então checar apenas 127.0.0.1 não enxerga essa instância.
+async function isPortInUse(port: number): Promise<boolean> {
+  const results = await Promise.all(['127.0.0.1', '::1'].map((h) => isPortInUseOn(port, h)))
+  return results.some(Boolean)
 }
 
 async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<number> {
