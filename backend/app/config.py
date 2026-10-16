@@ -320,12 +320,13 @@ PATRIMONIOS = [
     {
         "id": 2,
         "nome": "Marielle Franco",
-        "descricao": "Memorial Marielle Franco — Terminal Menezes Cortes (Novo Rio)",
-        "bairro": "Santo Cristo",
+        "descricao": "Memorial Marielle Franco — Terminal Menezes Cortes",
+        "bairro": "Centro",
+        "endereco": "Terminal Menezes Cortes - Centro, Rio de Janeiro - RJ, 20040-007",
         "categoria": "Personalidade / Direitos Humanos",
         "emoji": "✊🏿",
-        "latitude": -22.8975,
-        "longitude": -43.2150,
+        "latitude": -22.906115,
+        "longitude": -43.176134,
         "camera_codes": ["001963", "001962"],
     },
     # Desativado (12/08) — nenhuma câmera testada até agora aponta pro monumento, ver histórico no obs.
