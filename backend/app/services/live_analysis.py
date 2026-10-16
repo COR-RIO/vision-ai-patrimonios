@@ -566,9 +566,6 @@ class LiveAnalyzer:
                 "dwell_seconds": top["seconds"],
             }
 
-        monitor_api.record_risk_alert(cam.code, name, r["risk_alert"])
-        monitor_api.record_interaction_alert(cam.code, name, r["interaction_alert"])
-
         surface_alert = None if glitch else self._surface_events(cam, name, ts, surface, near)
 
         annotated = r["annotated_image"]
@@ -577,6 +574,9 @@ class LiveAnalyzer:
                      r["risk_objects"], cam.last_event, ts, hud)
         _, buf = cv2.imencode(".jpg", cv2.cvtColor(annotated, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
         jpg = buf.tobytes()
+        # Depois de desenhar: o alerta guarda o frame já anotado (caixas/zonas)
+        monitor_api.record_risk_alert(cam.code, name, r["risk_alert"], image=jpg)
+        monitor_api.record_interaction_alert(cam.code, name, r["interaction_alert"], image=jpg)
         self._evidence(cam, ts, jpg, surface)
 
         objects = [{k: v for k, v in d.items()} for d in r["objects"]]

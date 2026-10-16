@@ -75,8 +75,8 @@ def _process_camera(code: str) -> None:
         result = {"yolo_detection": live["yolo_detection"]}
     else:
         result = detection_service.detect_full(frame, camera_id=code)
-        monitor_api.record_risk_alert(code, camera_name, result.get("risk_alert"))
-        monitor_api.record_interaction_alert(code, camera_name, result.get("interaction_alert"))
+        monitor_api.record_risk_alert(code, camera_name, result.get("risk_alert"), image=frame)
+        monitor_api.record_interaction_alert(code, camera_name, result.get("interaction_alert"), image=frame)
 
     # Pessoas/veículos no quadro — excluídos do diff SSIM (senão alguém
     # sentado ao lado da estátua vira "X% do monumento alterado").
@@ -97,7 +97,7 @@ def _process_camera(code: str) -> None:
     else:
         change_result = change_detector.check(code, frame, detection_service, ignore_boxes=transient_boxes)
         if change_result.get("success"):
-            monitor_api.record_ssim_alert(code, camera_name, change_result.get("alert"))
+            monitor_api.record_ssim_alert(code, camera_name, change_result.get("alert"), image=frame)
 
 
 async def run_forever() -> None:

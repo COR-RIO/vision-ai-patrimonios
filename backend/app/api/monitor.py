@@ -450,7 +450,8 @@ def save_camera_snapshot(frame: np.ndarray, camera_code: str,
         return None
 
 
-def record_risk_alert(camera_code: str, camera_name: str, risk_alert: Optional[dict]) -> None:
+def record_risk_alert(camera_code: str, camera_name: str, risk_alert: Optional[dict],
+                      image=None) -> None:
     """Registra no alert_service um risk_alert (YOLO/preditivo), se houver."""
     if risk_alert:
         alert_service.add_alert(
@@ -459,6 +460,7 @@ def record_risk_alert(camera_code: str, camera_name: str, risk_alert: Optional[d
             level=risk_alert["level"],
             message=risk_alert["message"],
             source="risk",
+            image=image,
             objects=risk_alert.get("objects"),
         )
 
@@ -470,7 +472,8 @@ def record_loitering_alert(camera_code: str, camera_name: str, loitering_alert: 
     return None
 
 
-def record_interaction_alert(camera_code: str, camera_name: str, interaction_alert: Optional[dict]) -> None:
+def record_interaction_alert(camera_code: str, camera_name: str, interaction_alert: Optional[dict],
+                             image=None) -> None:
     """Registra no alert_service um alerta de interação com a estátua (pose), se houver."""
     if interaction_alert:
         alert_service.add_alert(
@@ -479,11 +482,13 @@ def record_interaction_alert(camera_code: str, camera_name: str, interaction_ale
             level=interaction_alert["level"],
             message=interaction_alert["message"],
             source="interaction",
+            image=image,
             objects=interaction_alert.get("events"),
         )
 
 
-def record_ssim_alert(camera_code: str, camera_name: str, alert: Optional[dict]) -> None:
+def record_ssim_alert(camera_code: str, camera_name: str, alert: Optional[dict],
+                      image=None) -> None:
     """Registra no alert_service um alert de mudança física (SSIM), se houver."""
     if alert:
         alert_service.add_alert(
@@ -492,6 +497,7 @@ def record_ssim_alert(camera_code: str, camera_name: str, alert: Optional[dict])
             level=alert["level"],
             message=alert["message"],
             source="ssim",
+            image=image,
         )
 
 
@@ -570,9 +576,9 @@ async def monitor_live(
             response["loitering_alert"] = result.get("loitering_alert")
             response["interaction_alert"] = result.get("interaction_alert")
             response["hf_prediction"] = result.get("hf_prediction")
-            record_risk_alert(camera_code, camera_name, response["risk_alert"])
+            record_risk_alert(camera_code, camera_name, response["risk_alert"], image=frame)
             record_loitering_alert(camera_code, camera_name, response["loitering_alert"])
-            record_interaction_alert(camera_code, camera_name, response["interaction_alert"])
+            record_interaction_alert(camera_code, camera_name, response["interaction_alert"], image=frame)
             response["snapshot_path"] = save_camera_snapshot(frame, camera_code, camera_name, "monitoramento")
             
             # Imagem anotada
@@ -662,9 +668,9 @@ async def monitor_multi(
                     cam_result["loitering_alert"] = result.get("loitering_alert")
                     cam_result["interaction_alert"] = result.get("interaction_alert")
                     cam_result["hf_prediction"] = result.get("hf_prediction")
-                    record_risk_alert(code, cam_name, cam_result["risk_alert"])
+                    record_risk_alert(code, cam_name, cam_result["risk_alert"], image=frame)
                     record_loitering_alert(code, cam_name, cam_result["loitering_alert"])
-                    record_interaction_alert(code, cam_name, cam_result["interaction_alert"])
+                    record_interaction_alert(code, cam_name, cam_result["interaction_alert"], image=frame)
 
                     # Frame anotado — o frontend exibe esse print no lugar do
                     # vídeo ao vivo (modo "Snapshots"), sem abrir conexão
@@ -993,7 +999,7 @@ async def detect_changes(
         return result
 
     camera_name_alert = camera.get("name", f"Câmera {camera_code}") if camera else f"Câmera {camera_code}"
-    record_ssim_alert(camera_code, camera_name_alert, result["alert"])
+    record_ssim_alert(camera_code, camera_name_alert, result["alert"], image=current_frame)
 
     return {
         "success": True,
