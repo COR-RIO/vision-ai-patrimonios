@@ -21,6 +21,7 @@ from skimage.metrics import structural_similarity as ssim
 from app.config import (
     INTERACTION_MEMORY_SECONDS,
     STATUE_OCCLUSION_SKIP,
+    SURFACE_VISIBLE_MIN_NCC,
     SSIM_INCREASE_MODERADO,
     SSIM_INCREASE_ALTO,
     SSIM_INCREASE_CRITICO,
@@ -330,6 +331,14 @@ class ChangeDetector:
         if visible_frac < 1 - STATUE_OCCLUSION_SKIP:
             return {"success": False, "skipped": True,
                     "error": f"Estátua {100 - visible_pct:.0f}% encoberta por pessoas/veículos — comparação pulada neste print"}
+        # Encoberta por algo que o YOLO não detectou (ônibus parado na frente):
+        # a silhueta inteira deixa de parecer a da referência. Tinta/peça
+        # faltando mudam parte dela, mas a estátua continua reconhecível.
+        sil_ncc = statue_compare.masked_ncc(ref_data["reference_gray"], warped_gray, silhouette & in_view & ~front)
+        if sil_ncc < SURFACE_VISIBLE_MIN_NCC:
+            return {"success": False, "skipped": True,
+                    "error": f"Estátua fora de vista (semelhança {sil_ncc:.2f} com a referência) — "
+                             f"algo parado na frente; comparação pulada neste print"}
 
         current_roi = warped[zy1:zy2, zx1:zx2]
 
@@ -502,8 +511,8 @@ class ChangeDetector:
 
         # ─── 6. Mudança confirmada logo depois de alguém mexer ────
         # Os prints são espaçados — o gesto de arrancar uma peça pode cair
-        # entre dois deles. Se houve interação CONFIRMADA (pessoa em cima,
-        # mão na área sensível por muito tempo) há pouco e agora a mudança
+        # entre dois deles. Se houve golpe CONFIRMADO contra a estátua no
+        # vídeo há pouco e agora a mudança
         # se manteve, é o cenário de furto/dano: sobe pra CRÍTICO.
         last = interaction.last_interaction(camera_code)
         if alert and last and now - last <= INTERACTION_MEMORY_SECONDS:

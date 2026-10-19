@@ -135,12 +135,13 @@ interface DetectionFrame {
     message: string
     objects?: string[]
   }
-  // Interação com a estátua (pose): mão na área sensível / pessoa em cima
+  // Golpe na estátua (pose): movimento brusco contra a figura. MODERADO =
+  // ainda confirmando (só no vídeo); ALTO = confirmado
   interaction_alert?: {
     level: string
     message: string
     events?: string[]
-    dwell_seconds?: number
+    strikes?: number
   }
   // Informativo: presença contínua de pessoas junto ao monumento
   loitering_alert?: {

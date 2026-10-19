@@ -125,6 +125,11 @@ SURFACE_UNATTRIBUTED_ABSORB_SECONDS = 300
 SURFACE_EVENT_COOLDOWN_SECONDS = int(os.getenv("SURFACE_EVENT_COOLDOWN_SECONDS", "1800"))
 # Pixel alterado precisa estar parado (sem movimento) por este tempo
 SURFACE_STILL_SECONDS = float(os.getenv("SURFACE_STILL_SECONDS", "15"))
+# Semelhança (NCC) da figura com a aparência gravada (calibração) abaixo
+# disto = a estátua NÃO está à vista (ônibus/caminhão/guarda-sol parado na
+# frente que o YOLO não detectou): a superfície fica em pausa. Pichação ou
+# peça faltando mudam parte da figura, mas ela continua reconhecível.
+SURFACE_VISIBLE_MIN_NCC = float(os.getenv("SURFACE_VISIBLE_MIN_NCC", "0.3"))
 # Clipe de evidência: segundos antes do início da mudança e após a confirmação
 EVIDENCE_PRE_SECONDS = float(os.getenv("EVIDENCE_PRE_SECONDS", "15"))
 EVIDENCE_POST_SECONDS = float(os.getenv("EVIDENCE_POST_SECONDS", "5"))
@@ -184,24 +189,27 @@ POSE_MODEL = os.getenv("POSE_MODEL", str(BASE_DIR.parent / "yolo26n-pose.pt"))
 SEG_MODEL = os.getenv("SEG_MODEL", str(BASE_DIR.parent / "yolo26n-seg.pt"))
 POSE_KEYPOINT_CONF = 0.35
 
-# Pés acima desta fração da altura do contorno (medida a partir da base)
-# = pessoa em cima da estátua/pedestal. Quem está sentado ou em pé ao
-# lado tem os pés no chão, perto da base.
-CLIMB_FOOT_MIN_HEIGHT = 0.2
-
-# "Em cima da estátua" só vira ALTO depois de a MESMA pessoa ficar em pé
-# (pernas esticadas, os dois pés acima da base) por este tempo. Sentar no
-# banco nunca conta, por mais tempo que seja.
-CLIMB_CONFIRM_SECONDS = float(os.getenv("CLIMB_CONFIRM_SECONDS", "20"))
+# ─── Golpe na estátua (pose, só na análise contínua) ─────────────
+# Tocar, abraçar, posar pra foto ou sentar/subir NÃO é alerta. O que se
+# procura é AÇÃO contra a estátua: o punho se move bruscamente e termina
+# SOBRE a figura (bater, chutar, raspar com objeto). Velocidade medida em
+# alturas do corpo da pessoa por segundo (independe da distância da câmera).
+# A 2 FPS o golpe (~0,3 s) cai entre dois frames: medido, um soco sai
+# ~0,8-1,0; encostar a mão pra foto, ~0,2-0,3.
+STRIKE_SPEED = float(os.getenv("STRIKE_SPEED", "0.6"))
+# Deslocamento acima disto (alturas do corpo) entre dois frames = o
+# keypoint "pulou" (pose trocou de pessoa/mão) — não é golpe
+STRIKE_MAX_JUMP = 1.0
+# Golpes da MESMA pessoa dentro desta janela...
+STRIKE_WINDOW_SECONDS = float(os.getenv("STRIKE_WINDOW_SECONDS", "10"))
+# ...a partir deste número → ALTO. Com objeto na mão (garrafa, taco,
+# faca...), um golpe já basta.
+STRIKE_MIN_COUNT = int(os.getenv("STRIKE_MIN_COUNT", "3"))
 # Falha de detecção por até este tempo não zera a contagem (pose pisca)
 INTERACTION_GRACE_SECONDS = 5
 
-# Mão na área sensível (cabeça/óculos/violão) da MESMA pessoa por pelo menos
-# este tempo → ALTO. Pose pra foto (abraço, mão no ombro) dura segundos.
-INTERACTION_ESCALATE_SECONDS = float(os.getenv("INTERACTION_ESCALATE_SECONDS", "90"))
-
-# Mudança física no contorno da estátua até este tempo depois de uma
-# interação → CRÍTICO (possível retirada de peça/dano).
+# Mudança física no contorno da estátua até este tempo depois de um
+# golpe confirmado → CRÍTICO (possível dano).
 INTERACTION_MEMORY_SECONDS = 600
 
 # Se pessoas/veículos cobrem esta fração do contorno da estátua, a

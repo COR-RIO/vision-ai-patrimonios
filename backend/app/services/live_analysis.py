@@ -56,7 +56,10 @@ from app.config import (
     SURFACE_EVENT_COOLDOWN_SECONDS,
     EVIDENCE_PRE_SECONDS,
     EVIDENCE_POST_SECONDS,
+    INTERACTION_MEMORY_SECONDS,
+    SURFACE_VISIBLE_MIN_NCC,
 )
+from app.models import interaction
 from app.models.detector import PatrimonyDetector, _zone_box, _frac_box
 from app.models.surface_monitor import SurfaceMonitor
 from app.services import alert_service, evidence_service, live_capture, statue_memory, zone_service
@@ -194,10 +197,9 @@ def _hud_lines(r: dict, near: list[dict], surface: Optional[dict], surface_statu
         lines.append((f"Superficie: {surface_status}", color))
     ia = r.get("interaction_alert")
     for p in (ia or {}).get("progress", [])[:3]:
-        who = f"#{p['who']}" if str(p["who"]).isdigit() else "pessoa"
-        done = p["seconds"] >= p["needed"]
-        lines.append((f"{who} {p['label']}: {p['seconds']:.0f}/{p['needed']:.0f}s"
-                      + (" - ALERTA" if done else " (normal em foto)"),
+        done = p["count"] >= p["needed"]
+        lines.append((f"#{p['who']} {p['label']}: {p['count']}/{p['needed']}"
+                      + (" - ALERTA" if done else " (movimento brusco)"),
                       _RED if done else _ORANGE))
     if r.get("risk_objects"):
         nomes = ", ".join(sorted({d["class_name"] for d in r["risk_objects"]}))
@@ -301,6 +303,18 @@ class CameraAnalysis:
                 return True
             self.statue_status = f"encoberta por pessoa na frente (semelhanca {ncc:.2f})"
         return False
+
+    def statue_visibility(self, frame: np.ndarray, surface_px: tuple) -> Optional[float]:
+        """Semelhança (NCC) da figura INTEIRA com a aparência conhecida da
+        estátua: a da calibração, ou a aprendida (melhor das referências).
+        None se ainda não há aparência conhecida. Pichação/peça faltando
+        mudam parte da figura; ônibus ou guarda-sol parado na frente (que o
+        YOLO não detectou) a tiram de vista — a semelhança despenca."""
+        if "calib" in self.statue_refs:
+            return statue_memory.similarity(self.code, surface_px, frame)
+        sims = [float((_statue_tpl(frame, r["bbox"]) * r["tpl"]).mean())
+                for r in self.statue_refs.values() if "tpl" in r]
+        return max(sims) if sims else None
 
     def sync_calibration(self, frame: np.ndarray) -> None:
         """Aparência da estátua gravada na calibração vira referência fixa
@@ -542,12 +556,21 @@ class LiveAnalyzer:
         # acontecido. Nesses frames a análise da superfície fica em pausa.
         glitch = cam.glitch_check(frame, [d["bbox"] for d in r["objects"]])
 
+        # ─── Estátua à vista? ────────────────────────────────────────
+        # Ônibus/caminhão parado na frente nem sempre é detectado pelo YOLO;
+        # sem isso a figura "inteira mudou" com ninguém junto → falso alarme.
+        visibility = cam.statue_visibility(frame, surface_px) if surface_px else None
+        hidden = visibility is not None and visibility < SURFACE_VISIBLE_MIN_NCC
+
         # ─── Superfície protegida ────────────────────────────────────
         surface = None
         if surface_px and glitch:
             # Só pausa: não zera as contagens (frame ruim no meio de uma
             # alteração real não pode reiniciar a janela de minutos)
             cam.surface_status = "PAUSADA - imagem com falha de transmissao"
+        elif surface_px and hidden:
+            # Também só pausa — e não atualiza o fundo (não aprende o ônibus)
+            cam.surface_status = f"PAUSADA - estatua encoberta (semelhanca {visibility:.2f})"
         elif surface_px:
             # Tudo que o YOLO achou na frente da superfície (menos a própria
             # estátua) é oclusão, não mudança
@@ -566,7 +589,7 @@ class LiveAnalyzer:
                 "dwell_seconds": top["seconds"],
             }
 
-        surface_alert = None if glitch else self._surface_events(cam, name, ts, surface, near)
+        surface_alert = None if glitch or hidden else self._surface_events(cam, name, ts, surface, near)
 
         annotated = r["annotated_image"]
         hud = _hud_lines(r, near, surface, cam.surface_status, cam.statue_status)
@@ -680,11 +703,17 @@ class LiveAnalyzer:
         # ─── Confirma o evento ───────────────────────────────────────
         ids = ", ".join(f"#{i}" for i in suspects)
         level = "CRÍTICO" if clear_frac >= SURFACE_CRITICAL_FRAC else "ALTO"
+        # Golpe confirmado há pouco + alteração que ficou = dano: CRÍTICO
+        struck = interaction.last_interaction(cam.code)
+        golpe = ""
+        if struck and ts - struck <= INTERACTION_MEMORY_SECONDS:
+            level = "CRÍTICO"
+            golpe = f" Houve movimento brusco contra a estátua há ~{max(int((ts - struck) // 60), 1)} min."
         alert = {
             "level": level,
             "message": (f"🎨 {level}: Estátua alterada ({pct}% da figura) e a alteração CONTINUOU depois que "
                         f"as pessoas se afastaram ({int(clear_for)}s com a estátua livre, somados). Pessoa(s) {ids} "
-                        f"estiveram junto antes. Possível pichação/dano — requer validação humana"),
+                        f"estiveram junto antes.{golpe} Possível pichação/dano — requer validação humana"),
         }
         cam.confirm = {"alert": alert, "pct": pct, "suspects": suspects, "ids": ids}
         cam.surface_status = f"ALERTA: alteracao {pct}% permaneceu com a estatua livre"

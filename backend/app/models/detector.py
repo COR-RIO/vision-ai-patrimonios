@@ -307,8 +307,9 @@ class PatrimonyDetector:
                 "dwell_seconds": round(person_dwell_seconds, 1),
             }
 
-        # ─── Interação com a estátua (pose) ──────────────────────────────
+        # ─── Golpe na estátua (pose, só no vídeo contínuo) ───────────────
         # Só roda o modelo de pose quando há alguém encostado na estátua.
+        # Tocar/posar não é alerta — só movimento brusco contra a figura.
         interaction_alert = None
         if statue_px:
             someone_at_statue = any(
@@ -316,13 +317,15 @@ class PatrimonyDetector:
                 and (d["statue_overlap"] or 0) >= 0.1
                 for d in detections
             )
-            if someone_at_statue:
+            if someone_at_statue and track:
                 interaction_alert = self.interaction.analyze(
-                    image, tracker_key, statue_px, sensitive_px, annotated=annotated_image,
+                    image, tracker_key, statue_px, annotated=annotated_image,
                     statue_boxes=[d["bbox"] for d in detections if d["is_statue"]],
                     people=[(d["bbox"], d["track_id"]) for d in detections
                             if d["class_name"] == "pessoa" and not d["is_statue"]],
-                    continuous=track,
+                    # Objeto na mão de quem golpeia (não precisa encostar na estátua)
+                    objects=[d["bbox"] for d in detections if d["class_name"] in RISK_CLASSES],
+                    continuous=True,
                 )
             else:
                 interaction.clear(tracker_key, INTERACTION_GRACE_SECONDS if track else PRINT_GRACE_SECONDS)

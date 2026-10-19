@@ -474,8 +474,9 @@ def record_loitering_alert(camera_code: str, camera_name: str, loitering_alert: 
 
 def record_interaction_alert(camera_code: str, camera_name: str, interaction_alert: Optional[dict],
                              image=None) -> None:
-    """Registra no alert_service um alerta de interação com a estátua (pose), se houver."""
-    if interaction_alert:
+    """Registra no alert_service um golpe CONFIRMADO na estátua (pose), se houver.
+    MODERADO (movimento brusco ainda sem confirmar) fica só no vídeo."""
+    if interaction_alert and interaction_alert["level"] in ("ALTO", "CRÍTICO"):
         alert_service.add_alert(
             camera_code=camera_code,
             camera_name=camera_name,
